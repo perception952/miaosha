@@ -3,10 +3,11 @@ package com.miaoshaproject.service.model;
 import lombok.Data;
 import org.joda.time.DateTime;
 
+import java.io.Serializable;
 import java.math.BigDecimal;
 
 @Data
-public class PromoModel {
+public class PromoModel implements Serializable {
 
     private Integer id;
 

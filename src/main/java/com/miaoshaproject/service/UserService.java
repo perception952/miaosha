@@ -10,6 +10,10 @@ public interface UserService {
 
     void register(UserModel userModel) throws BackingStoreException, BusinessException;
 
+
+    //通过缓存获取用户对象
+    UserModel getUserByIdInCache(Integer id);
+
     /**
      *
      * @param telphone 用户注册手机

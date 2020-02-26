@@ -2,8 +2,10 @@ package com.miaoshaproject.service.impl;
 
 import com.miaoshaproject.dao.OrderDoMapper;
 import com.miaoshaproject.dao.SequenceDoMapper;
+import com.miaoshaproject.dao.StockLogDoMapper;
 import com.miaoshaproject.dataobject.OrderDo;
 import com.miaoshaproject.dataobject.SequenceDo;
+import com.miaoshaproject.dataobject.StockLogDo;
 import com.miaoshaproject.error.BusinessException;
 import com.miaoshaproject.error.EmBusinessError;
 import com.miaoshaproject.service.ItemService;
@@ -11,7 +13,6 @@ import com.miaoshaproject.service.OrderService;
 import com.miaoshaproject.service.UserService;
 import com.miaoshaproject.service.model.ItemModel;
 import com.miaoshaproject.service.model.OrderModel;
-import com.miaoshaproject.service.model.UserModel;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -37,35 +38,22 @@ public class OrderServiceImpl implements OrderService {
     @Autowired
     private SequenceDoMapper sequenceDoMapper;
 
+    @Autowired
+    private StockLogDoMapper stockLogDoMapper;
+
     @Override
     @Transactional
-    public OrderModel createOrder(Integer userId, Integer itemId, Integer promoId, Integer amount) throws BusinessException {
-        //校验下单状态，下单的商品是否存在，用户是否合法，购买数量是否正确
-        ItemModel itemModel = itemService.getItemById(itemId);
-        if(itemModel == null){
-            throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR, "商品信息不存在");
-        }
+    public OrderModel createOrder(Integer userId, Integer itemId, Integer promoId, Integer amount, String stockLogId) throws BusinessException {
 
-        UserModel userModel = userService.getUserById(userId);
-        if(userModel == null){
-            throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR, "用户信息不存在");
+        ItemModel itemModel = itemService.getItemByIdInCache(itemId);
+        if(itemId == null){
+            throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR, "商品信息不正确");
         }
 
         if(amount <= 0 || amount > 99){
             throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR, "数量信息不正确");
         }
 
-        //校验活动信息
-        if(promoId != null){
-            //校验对应活动是否存在这个适用商品
-            if(promoId.intValue() != itemModel.getPromoModel().getId()){
-                throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR, "活动信息不正确");
-            //校验活动是否正在进行中
-            } else if(itemModel.getPromoModel().getStatus().intValue() != 2){
-                throw  new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR, "活动信息还未开始");
-            }
-
-        }
 
         //落单减库存，支付减库存
         boolean result = itemService.decreaseStock(itemId, amount);
@@ -93,12 +81,35 @@ public class OrderServiceImpl implements OrderService {
 
         //加上商品销量
         itemService.increaseSales(itemId, amount);
+
+        //设置库存流水状态为成功
+        StockLogDo stockLogDo = stockLogDoMapper.selectByPrimaryKey(stockLogId);
+        if(stockLogDo == null){
+            throw new BusinessException(EmBusinessError.UNKNOWN_ERROR);
+        }
+
+        stockLogDo.setStatus(2);
+        stockLogDoMapper.updateByPrimaryKeySelective(stockLogDo);
+
+//        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronizationAdapter() {
+//            @Override
+//            public void afterCommit() {
+//                //异步更新库存
+//                boolean mqResult = itemService.asyncDecreseStock(itemId, amount);
+////                if(!mqResult){
+////                    itemService.increaseStock(itemId, amount);
+////                    throw new BusinessException(EmBusinessError.MQ_SEND_FAIL);
+////                }
+//            }
+//        });
+
+
         //返回前端
         return orderModel;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    private String generateOrderNo(){
+    public String generateOrderNo(){
         //订单号为16位
         StringBuilder stringBuilder = new StringBuilder();
         //前八位为时间信息，年月日
